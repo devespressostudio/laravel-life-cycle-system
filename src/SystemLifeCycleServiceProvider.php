@@ -26,12 +26,20 @@ class SystemLifeCycleServiceProvider extends ServiceProvider
             __DIR__ . '/migrations' => database_path('migrations'),
         ], 'devespresso-life-cycle-migrations');
 
-        $this->app->booted(function () {
-            $schedule = $this->app->make(Schedule::class);
-            $schedule->command('devespresso:life-cycle:run')->everyTenMinutes();
-            $schedule->command('devespresso:life-cycle:logs-clean-up')->daily();
-            $schedule->command('devespresso:life-cycle:completed-models-clean-up')->daily();
-        });
+        if (config('systemLifeCycle.schedule.enabled', true)) {
+            $this->app->booted(function () {
+                $schedule = $this->app->make(Schedule::class);
+
+                $schedule->command('devespresso:life-cycle:run')
+                    ->{config('systemLifeCycle.schedule.run.frequency', 'hourly')}();
+
+                $schedule->command('devespresso:life-cycle:logs-clean-up')
+                    ->{config('systemLifeCycle.schedule.logs_clean_up.frequency', 'weekly')}();
+
+                $schedule->command('devespresso:life-cycle:completed-models-clean-up')
+                    ->{config('systemLifeCycle.schedule.completed_models_clean_up.frequency', 'weekly')}();
+            });
+        }
     }
 
     public function register(): void

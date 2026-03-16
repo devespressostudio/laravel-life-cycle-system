@@ -45,7 +45,19 @@ class SystemLifeCycleModel extends Model
 
     /**
      * Filter records that are eligible to be executed.
-     * Joins system_life_cycles to check active status, date range, and cron flag.
+     *
+     * Joins system_life_cycles and applies the following conditions:
+     *  1. The lifecycle must be active.
+     *  2. The lifecycle's starts_at must be in the past.
+     *  3. If $onlyByCron is true (default), only lifecycles with activate_by_cron = true.
+     *  4. The lifecycle must not have ended (ends_at is null or in the future).
+     *  5. The record either has no executes_at (run immediately) or its executes_at
+     *     falls within the configured window. The window is determined by
+     *     config('systemLifeCycle.schedule.run.window_in_minutes') and should match
+     *     the run frequency. Boundaries are snapped to startOfMinute / endOfMinute
+     *     so records scheduled at any second within those boundary minutes are included.
+     *
+     * Override $startDate / $endDate to use a custom window instead of the config value.
      */
     public function scopeWhereCanBeExecuted(
         Builder $builder,
@@ -65,10 +77,12 @@ class SystemLifeCycleModel extends Model
                     ->orWhere('system_life_cycles.ends_at', '>', $now);
             })
             ->where(function ($query) use ($startDate, $endDate, $now) {
+                $windowMinutes = config('systemLifeCycle.schedule.run.window_in_minutes', 60);
+
                 $query->whereNull('executes_at')
                     ->orWhereBetween('executes_at', [
-                        $startDate ?? $now->copy()->startOfMinute()->toDateTimeString(),
-                        $endDate ?? $now->copy()->addMinutes(10)->toDateTimeString(),
+                        $startDate ?? $now->copy()->subMinutes($windowMinutes)->startOfMinute()->toDateTimeString(),
+                        $endDate ?? $now->copy()->addMinutes($windowMinutes)->endOfMinute()->toDateTimeString(),
                     ]);
             });
     }

@@ -27,7 +27,7 @@ php artisan migrate
 // config/systemLifeCycle.php
 
 return [
-    // Days to keep execution logs (cleaned up by the daily command)
+    // Days to keep execution logs
     'log_retention_days' => 90,
 
     // Days to keep completed lifecycle model records
@@ -44,6 +44,18 @@ return [
     // Set to true and populate 'relation_mapping' to use custom morph aliases
     'custom_relation_mapping' => false,
     'relation_mapping' => [],
+
+    // Schedule configuration — set 'enabled' to false to manage commands yourself
+    'schedule' => [
+        'enabled' => true,
+        'run' => [
+            'frequency'          => 'hourly',
+            'window_in_minutes'  => 60,   // executes_at lookup window
+            'stale_after_minutes' => 120, // reset executes_at after this
+        ],
+        'logs_clean_up'            => ['frequency' => 'weekly'],
+        'completed_models_clean_up' => ['frequency' => 'weekly'],
+    ],
 ];
 ```
 
@@ -205,28 +217,60 @@ SystemLifeCycleStage::create([
 $user->addLifeCycleByCode('onboarding');
 ```
 
-### 5. Schedule the run command
+### 5. Automatic scheduling
 
-Add the run command to your console schedule to process pending lifecycle records:
+The package automatically registers the following scheduled commands via its service provider:
+
+| Command | Default Frequency |
+|---------|-------------------|
+| `devespresso:life-cycle:run` | Hourly |
+| `devespresso:life-cycle:logs-clean-up` | Weekly |
+| `devespresso:life-cycle:completed-models-clean-up` | Weekly |
+
+You can customize frequencies or disable auto-scheduling entirely via the `schedule` config key:
 
 ```php
-// routes/console.php or app/Console/Kernel.php
+// Run every 5 minutes instead of hourly
+'schedule' => [
+    'enabled' => true,
+    'run' => [
+        'frequency'           => 'everyFiveMinutes',
+        'window_in_minutes'   => 5,
+        'stale_after_minutes' => 10,
+    ],
+],
 
-$schedule->command('devespresso:life-cycle:run')->everyMinute();
+// Disable auto-scheduling to manage commands yourself
+'schedule' => [
+    'enabled' => false,
+],
 ```
 
-The command:
-1. Resets stale `executes_at` values (records stuck > 20 minutes)
+The run command:
+1. Resets stale `executes_at` values (older than `stale_after_minutes`, default 120)
 2. Assigns the first stage to any records missing one
 3. Claims all `pending` records as `processing` using a batch ID
 4. Dispatches a `SystemLifeCycleExecuteJob` for each claimed record
 
-### 6. Schedule clean-up commands
+### Execution window (`whereCanBeExecuted` scope)
 
-```php
-$schedule->command('devespresso:life-cycle:logs-clean-up')->daily();
-$schedule->command('devespresso:life-cycle:completed-models-clean-up')->daily();
-```
+The `whereCanBeExecuted` scope determines which records are eligible on each tick. A record is eligible when:
+
+1. Its lifecycle is **active** and has **started** (and not ended)
+2. If running via cron, the lifecycle has `activate_by_cron = true`
+3. Either `executes_at` is `null` (run immediately) **or** it falls within the configured window
+
+The window is controlled by `schedule.run.window_in_minutes` (default 60) and extends in both directions from `now()`. Boundaries are snapped to `startOfMinute()` / `endOfMinute()` so records scheduled at any second within those boundary minutes are included.
+
+When customizing the run frequency, keep all three values in sync:
+
+| Frequency | `window_in_minutes` | `stale_after_minutes` |
+|-----------|--------------------:|----------------------:|
+| `everyFiveMinutes` | 5 | 10 |
+| `everyTenMinutes` | 10 | 20 |
+| `hourly` (default) | 60 | 120 |
+
+You can also pass custom `$startDate` / `$endDate` arguments to the scope to override the config window entirely.
 
 ## Execution Flow
 

@@ -22,7 +22,7 @@ class SystemLifeCycleRunCommandTest extends TestCase
         Queue::fake();
 
         ['lcModel' => $lcModel] = $this->createLifeCycleChain(modelOverrides: [
-            'executes_at' => now()->subMinutes(25), // older than 20 min threshold
+            'executes_at' => now()->subHours(3), // older than 2 hour threshold
             'status'      => 'pending',
         ]);
 

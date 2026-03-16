@@ -21,7 +21,8 @@ class SystemLifeCycleRunCommand extends Command
 
         // Reset executes_at for stale records that were scheduled but never ran,
         // so they get picked up again on this tick
-        SystemLifeCycleModel::where('executes_at', '<', now()->subMinutes(20))
+        $staleMinutes = config('systemLifeCycle.schedule.run.stale_after_minutes', 120);
+        SystemLifeCycleModel::where('executes_at', '<', now()->subMinutes($staleMinutes))
             ->update(['executes_at' => null]);
 
         // Assign the first stage to any model that doesn't have one yet
