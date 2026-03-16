@@ -1,49 +1,24 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Models;
+namespace Devespresso\SystemLifeCycle\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-
 class SystemLifeCycleStage extends Model
 {
-    use HasFactory;
+    use HasUlids;
 
-    /**
-     * Sets the table
-     *
-     * @var string
-     */
     protected $table = 'system_life_cycle_stages';
 
-    /**
-     * Mutates attributes
-     *
-     * @var array
-     */
+    protected $guarded = ['internal_id'];
+
     protected $casts = [
-        'system_life_cycle_id' => 'integer',
-        'order' => 'integer',
-        'has_internal_stages' => 'boolean',
+        'sequence' => 'integer',
     ];
 
-    /**
-     * Guarded
-     *
-     * @var array
-     */
-    protected $guarded = [
-        'id',
-    ];
-
-    /**
-     * Life Cycle
-     *
-     * @return BelongsTo
-     */
-    public function lifeCycle()
+    public function lifeCycle(): BelongsTo
     {
         return $this->belongsTo(SystemLifeCycle::class, 'system_life_cycle_id', 'id');
     }

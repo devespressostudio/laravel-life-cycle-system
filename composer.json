@@ -1,7 +1,7 @@
 {
-    "name": "abix/system-life-cycle",
+    "name": "devespresso/system-life-cycle",
     "description": "System Life Cycle",
-    "type": "project",
+    "type": "library",
     "license": "MIT",
     "authors": [
         {
@@ -9,16 +9,33 @@
             "email": "abi_salazar@hotmail.co.uk"
         }
     ],
+    "require": {
+        "php": "^8.1",
+        "illuminate/database": "^10.0|^11.0",
+        "illuminate/support": "^10.0|^11.0",
+        "illuminate/console": "^10.0|^11.0",
+        "illuminate/queue": "^10.0|^11.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0",
+        "phpunit/phpunit": "^10.0|^11.0",
+        "fakerphp/faker": "^1.23"
+    },
     "minimum-stability": "dev",
     "autoload": {
         "psr-4": {
-            "Abix\\SystemLifeCycle\\": "src"
+            "Devespresso\\SystemLifeCycle\\": "src"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Devespresso\\SystemLifeCycle\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "Abix\\SystemLifeCycle\\SystemLifeCycleServiceProvider"
+                "Devespresso\\SystemLifeCycle\\SystemLifeCycleServiceProvider"
             ]
         }
     }

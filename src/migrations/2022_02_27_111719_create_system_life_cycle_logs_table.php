@@ -1,6 +1,6 @@
 <?php
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycleLog;
+use Devespresso\SystemLifeCycle\Enums\LifeCycleStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -15,15 +15,21 @@ class CreateSystemLifeCycleLogsTable extends Migration
     public function up()
     {
         Schema::create('system_life_cycle_logs', function (Blueprint $table) {
-            $table->uuid('id')->primary();
-            $table->unsignedBigInteger('system_life_cycle_id')->index();
-            $table->unsignedBigInteger('system_life_cycle_stage_id')->index();
-            $table->unsignedBigInteger('model_id');
+            $table->bigIncrements('internal_id');
+            $table->ulid('id')->unique();
+            $table->char('system_life_cycle_id', 26)->index();
+            $table->char('system_life_cycle_stage_id', 26)->index();
+            match(config('systemLifeCycle.model_id_type', 'string')) {
+                'integer' => $table->unsignedBigInteger('model_id'),
+                'ulid'    => $table->char('model_id', 26),
+                'uuid'    => $table->char('model_id', 36),
+                default   => $table->string('model_id'),
+            };
             $table->string('model_type');
             $table->string('status', 20)
-                ->default(SystemLifeCycleLog::SUCCESS_STATE)
+                ->default(LifeCycleStatus::Success->value)
                 ->index();
-            $table->longText('payload')->nullable();
+            $table->json('payload')->nullable();
             $table->unsignedTinyInteger('attempts')->default(0);
             $table->longText('error')->nullable();
             $table->dateTime('created_at')->index();

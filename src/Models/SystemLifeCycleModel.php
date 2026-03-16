@@ -1,199 +1,102 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Models;
+namespace Devespresso\SystemLifeCycle\Models;
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycle;
-use Abix\SystemLifeCycle\Traits\UuidTrait;
+use Devespresso\SystemLifeCycle\Enums\LifeCycleStatus;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class SystemLifeCycleModel extends Model
 {
-    use UuidTrait;
+    use HasUlids;
 
-    /**
-     * Sets the table
-     *
-     * @var string
-     */
     protected $table = 'system_life_cycle_models';
 
-    /**
-     * Guarded
-     *
-     * @var array
-     */
-    protected $guarded = [
-        'id',
-    ];
+    protected $guarded = ['internal_id'];
 
-    /**
-     * Mutates attributes
-     *
-     * @var array
-     */
     protected $casts = [
         'payload' => 'json',
-        'model_id' => 'integer',
-        'stage' => 'integer',
+        'status'  => LifeCycleStatus::class,
     ];
 
-    public const PENDING_STATE = 'pending';
-
-    public const PROCESSING_STATE = 'processing';
-
-    public const COMPLETED_STATE = 'completed';
-
-    public const FAILED_STATE = 'failed';
-
-    /**
-     * The model's attributes.
-     *
-     * @var array
-     */
     protected $attributes = [
-        'status' => SystemLifeCycleModel::PENDING_STATE,
+        'status'   => 'pending',
         'attempts' => 0,
     ];
 
-    /**
-     * Life cycle
-     *
-     * @return BelongsTo
-     */
-    public function lifeCycle()
+    public function lifeCycle(): BelongsTo
     {
         return $this->belongsTo(SystemLifeCycle::class, 'system_life_cycle_id', 'id');
     }
 
-    /**
-     * Current Stage
-     *
-     * @return BelongsTo
-     */
-    public function currentStage()
+    public function currentStage(): BelongsTo
     {
         return $this->belongsTo(SystemLifeCycleStage::class, 'system_life_cycle_stage_id', 'id');
     }
 
-    /**
-     * Model
-     *
-     * @return Model
-     */
-    public function model()
+    public function model(): MorphTo
     {
-        if (config('systemLifeCycle.custom_relation_mapping')) {
-            Relation::morphMap(config('systemLifeCycle.relation_mapping'));
-        }
-
         return $this->morphTo('model');
     }
 
     /**
-     * Filters models that can be executed
-     *
-     * @param Builder $builder
-     * @return Builder
+     * Filter records that are eligible to be executed.
+     * Joins system_life_cycles to check active status, date range, and cron flag.
      */
     public function scopeWhereCanBeExecuted(
         Builder $builder,
-        string $startDate = null,
-        string $endDate = null,
+        ?string $startDate = null,
+        ?string $endDate = null,
         bool $onlyByCron = true
-
     ): Builder {
-        $today = now()->toDateTimeString();
+        $now = now();
 
-        $params = [
-            [
-                'active', 1,
-            ],
-            [
-                'starts_at', '<', $today,
-            ],
-
-        ];
-
-        if ($onlyByCron) {
-            $params[] = [
-                'activate_by_cron', $onlyByCron,
-            ];
-        }
-
-        return $builder->join(
-            'system_life_cycles',
-            'system_life_cycles.id',
-            'system_life_cycle_models.system_life_cycle_id'
-        )->where($params)
-            ->where(function ($query) use ($today) {
-                $query->where('system_life_cycles.ends_at', '>', $today)
-                    ->orWhereNull('system_life_cycles.ends_at');
-            })->where(function ($query) use ($startDate, $endDate) {
+        return $builder
+            ->join('system_life_cycles', 'system_life_cycles.id', 'system_life_cycle_models.system_life_cycle_id')
+            ->where('system_life_cycles.active', true)
+            ->where('system_life_cycles.starts_at', '<', $now)
+            ->when($onlyByCron, fn ($q) => $q->where('system_life_cycles.activate_by_cron', true))
+            ->where(function ($query) use ($now) {
+                $query->whereNull('system_life_cycles.ends_at')
+                    ->orWhere('system_life_cycles.ends_at', '>', $now);
+            })
+            ->where(function ($query) use ($startDate, $endDate, $now) {
                 $query->whereNull('executes_at')
                     ->orWhereBetween('executes_at', [
-                        $startDate ?: now()->startOfMinute()->toDateTimeString(),
-                        $endDate ?: now()->addMinutes(10)->toDateTimeString(),
+                        $startDate ?? $now->copy()->startOfMinute()->toDateTimeString(),
+                        $endDate ?? $now->copy()->addMinutes(10)->toDateTimeString(),
                     ]);
             });
     }
 
     /**
-     * Gets by code
-     *
-     * @param Builder $builder
-     * @param string $code
-     * @return Builder
+     * Filter by lifecycle code.
      */
     public function scopeWhereLifeCycleCode(Builder $builder, string $code): Builder
     {
-        return $builder->whereHas('lifeCycle', function ($query) use ($code) {
-            $query->where('code', $code);
-        });
+        return $builder->whereHas('lifeCycle', fn ($q) => $q->where('code', $code));
     }
 
-    /**
-     * Filters by state
-     *
-     * @param Builder $builder
-     * @return Builder
-     */
     public function scopePending(Builder $builder): Builder
     {
-        return $builder->where('status', SystemLifeCycleModel::PENDING_STATE);
+        return $builder->where('status', LifeCycleStatus::Pending);
     }
 
-    /**
-     * Filters by state
-     *
-     * @param Builder $builder
-     * @return Builder
-     */
     public function scopeProcessing(Builder $builder): Builder
     {
-        return $builder->where('status', SystemLifeCycleModel::PROCESSING_STATE);
+        return $builder->where('status', LifeCycleStatus::Processing);
     }
 
-    /**
-     * Filters by state
-     *
-     * @param Builder $builder
-     * @return Builder
-     */
     public function scopeCompleted(Builder $builder): Builder
     {
-        return $builder->where('status', SystemLifeCycleModel::COMPLETED_STATE);
+        return $builder->where('status', LifeCycleStatus::Completed);
     }
 
-    /**
-     * Filters by state
-     *
-     * @param Builder $builder
-     * @return Builder
-     */
     public function scopeFailed(Builder $builder): Builder
     {
-        return $builder->where('status', SystemLifeCycleModel::FAILED_STATE);
+        return $builder->where('status', LifeCycleStatus::Failed);
     }
 }

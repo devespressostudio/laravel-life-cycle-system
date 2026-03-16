@@ -1,140 +1,134 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Commands;
+namespace Devespresso\SystemLifeCycle\Commands;
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycle;
-use Abix\SystemLifeCycle\Models\SystemLifeCycleStage;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycle;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleStage;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class CreateSystemLifeCycleCommand extends Command
 {
-    /**
-     * The name and signature of the console command.
-     *
-     * @var string
-     */
-    protected $signature = 'system-life-cycle:create';
+    protected $signature = 'devespresso:life-cycle:create';
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Creates a life cycle';
+    protected $description = 'Interactively create a new life cycle with its stages via the command line';
 
-    /**
-     * Execute the console command.
-     *
-     * @return int
-     */
-    public function handle()
+    public function handle(): int
     {
-        $lifeCycle = [];
+        DB::transaction(function () {
+            // Collect lifecycle metadata from the user
+            $lifeCycle = [
+                'name'             => $this->ask('How do you want to name it?'),
+                'code'             => $this->askCode(),
+                'starts_at'        => $this->askDate('When do you want it to start?'),
+                'activate_by_cron' => $this->confirm('Does it activate by the cron job?', true),
+                'active'           => true,
+            ];
 
-        $lifeCycle['name'] = $this->ask('How do you want to name it?');
+            if ($this->confirm('Does it have an end date?', false)) {
+                $lifeCycle['ends_at'] = $this->askDate('What is the end date?');
+            }
 
-        $lifeCycle['code'] = $this->checkCode('Do you want to specify the code?');
+            // Collect stage count before any DB writes so we don't create
+            // a partial lifecycle if the user enters an invalid stage count
+            $stageCount = $this->askStageCount();
 
-        $lifeCycle['starts_at'] = $this->checkForDate('When do you want it to start?');
+            $lifeCycleId = SystemLifeCycle::create($lifeCycle)->id;
 
-        $lifeCycle['activate_by_cron'] = $this->confirm('Does it activate by the cron job?', true);
+            // Create each stage in sequence order
+            foreach (range(1, $stageCount) as $sequence) {
+                SystemLifeCycleStage::create([
+                    'sequence'             => $sequence,
+                    'name'                 => $this->ask("Stage {$sequence}: What is the name?"),
+                    'system_life_cycle_id' => $lifeCycleId,
+                    'class'                => $this->askClass($sequence),
+                ]);
+            }
+        });
 
-        if ($this->confirm('Does it have an end date?', false)) {
-            $lifeCycle['ends_at'] = $this->checkForDate('What is the end date');
-        }
-
-        $lifeCycle['active'] = 1;
-
-        $lifeCycleId = SystemLifeCycle::create($lifeCycle)->id;
-
-        $stageCount = (int) $this->ask('how many stages do you want?');
-
-        foreach (range(1, $stageCount) as $stageNumber) {
-            $stage = [];
-            $stage['order'] = $stageNumber;
-            $stage['name'] = $this->ask('Stage ' . $stageNumber . ': What is the name for this stage?');
-            $stage['system_life_cycle_id'] = $lifeCycleId;
-            $stage['class'] = $this->checkClass($stageNumber);
-
-            SystemLifeCycleStage::create($stage);
-        }
+        $this->info('Life cycle created successfully.');
 
         return 0;
     }
 
     /**
-     * Checks the class
-     *
-     * @param int $stageNumber
-     * @return void
+     * Ask for a unique lifecycle code, validating format before hitting the DB.
+     * Falls back to an auto-generated UUID if the user leaves it empty.
      */
-    public function checkClass(int $stageNumber)
+    private function askCode(): string
     {
-        $class = $this->ask('Stage ' . $stageNumber . ': What is the class for this stage? e.g App\Services\UserJoinLifeCycle');
-
-        if (class_exists($class)) {
-            return $class;
-        }
-
-        $this->error('We cant find the class');
-
-        return $this->checkClass($stageNumber);
-    }
-
-    /**
-     * Checks the date
-     *
-     * @param string $question
-     * @return void
-     */
-    public function checkForDate(string $question)
-    {
-        $date = $this->ask($question);
-
-        try {
-            $date = Carbon::parse($date);
-
-            return $date->toDateTimeString();
-        } catch (Exception $e) {
-            $this->error('Please Provide a date');
-            return $this->checkForDate($question);
-        }
-    }
-
-    /**
-     * Code
-     *
-     * @param string $question
-     * @return string
-     */
-    public function checkCode(string $question)
-    {
-        $code = $this->ask($question);
+        $code = $this->ask('Specify a code? (leave empty to auto-generate)');
 
         if (!$code) {
             return Str::uuid()->toString();
         }
 
-        $alreadyInUsed = SystemLifeCycle::where('code', $code)->exists();
-
         if (Str::contains($code, ' ')) {
-            $this->error('Code cant have spaces, please choose different one');
-            return $this->checkCode('do you want to specify another one?');
+            $this->error('Code cannot contain spaces.');
+            return $this->askCode();
         }
 
         if (Str::length($code) > 50) {
-            $this->error('Code cant be more than 50 characters long, please choose different one');
-            return $this->checkCode('do you want to specify another one?');
+            $this->error('Code cannot be more than 50 characters.');
+            return $this->askCode();
         }
 
-        if ($alreadyInUsed) {
-            $this->error('Code already in use, please choose different one');
-            return $this->checkCode('Code was already in use, do you want to specify another one?');
+        if (SystemLifeCycle::where('code', $code)->exists()) {
+            $this->error('Code is already in use.');
+            return $this->askCode();
         }
 
         return $code;
+    }
+
+    /**
+     * Ask for a date string and parse it with Carbon.
+     * Re-prompts if the input cannot be parsed into a valid datetime.
+     */
+    private function askDate(string $question): string
+    {
+        $input = $this->ask($question);
+
+        try {
+            return Carbon::parse($input)->toDateTimeString();
+        } catch (Exception $e) {
+            $this->error('Invalid date, please try again.');
+            return $this->askDate($question);
+        }
+    }
+
+    /**
+     * Ask for the fully-qualified handler class for a stage.
+     * Re-prompts if the class cannot be found by the autoloader.
+     */
+    private function askClass(int $sequence): string
+    {
+        $class = $this->ask("Stage {$sequence}: What is the handler class? e.g App\\Services\\UserJoinLifeCycle");
+
+        if (class_exists($class)) {
+            return $class;
+        }
+
+        $this->error('Class not found.');
+
+        return $this->askClass($sequence);
+    }
+
+    /**
+     * Ask for the number of stages, ensuring at least one is defined.
+     */
+    private function askStageCount(): int
+    {
+        $count = (int) $this->ask('How many stages do you want?');
+
+        if ($count < 1) {
+            $this->error('You need at least one stage.');
+            return $this->askStageCount();
+        }
+
+        return $count;
     }
 }

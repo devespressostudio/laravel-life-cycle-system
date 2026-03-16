@@ -1,8 +1,9 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Jobs;
+namespace Devespresso\SystemLifeCycle\Jobs;
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycleModel;
+use Devespresso\SystemLifeCycle\Contracts\LifeCycleStageContract;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleModel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -14,33 +15,24 @@ class SystemLifeCycleExecuteJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
-     * System life cycle model
-     *
-     * @var SystemLifeCycleModel
+     * Retries are managed internally by the lifecycle system via manageFailedCycle().
+     * Disabling Laravel's built-in retries prevents conflicts with the attempts counter.
      */
-    protected $systemLifeCycleModel = null;
+    public int $tries = 1;
 
+    public function __construct(
+        protected SystemLifeCycleModel $systemLifeCycleModel
+    ) {}
 
-    /**
-     * Create a new job instance.
-     *
-     * @return void
-     */
-    public function __construct(SystemLifeCycleModel $systemLifeCycleModel)
+    public function handle(): void
     {
-        $this->systemLifeCycleModel = $systemLifeCycleModel;
-    }
+        if (!$this->systemLifeCycleModel->currentStage) {
+            return;
+        }
 
-    /**
-     * Execute the job.
-     *
-     * @return void
-     */
-    public function handle()
-    {
-        $stage = $this->systemLifeCycleModel->currentStage;
-        $class = $stage->class;
+        /** @var LifeCycleStageContract $handler */
+        $handler = new ($this->systemLifeCycleModel->currentStage->class)($this->systemLifeCycleModel);
 
-        (new $class($this->systemLifeCycleModel))->execute();
+        $handler->execute();
     }
 }

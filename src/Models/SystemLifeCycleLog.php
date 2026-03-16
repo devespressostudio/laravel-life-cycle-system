@@ -1,106 +1,49 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Models;
+namespace Devespresso\SystemLifeCycle\Models;
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycleStage;
-use Abix\SystemLifeCycle\Traits\UuidTrait;
+use Devespresso\SystemLifeCycle\Enums\LifeCycleStatus;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class SystemLifeCycleLog extends Model
 {
-    use HasFactory, UuidTrait;
+    use HasUlids;
 
-    /**
-     * Sets the table
-     *
-     * @var string
-     */
     protected $table = 'system_life_cycle_logs';
 
-    /**
-     * Guarded
-     *
-     * @var array
-     */
-    protected $guarded = [
-        'id',
-    ];
+    protected $guarded = ['internal_id'];
 
-    /**
-     * Mutates attributes
-     *
-     * @var array
-     */
     protected $casts = [
         'payload' => 'json',
-        'model_id' => 'integer',
-        'stage' => 'integer',
+        'status'  => LifeCycleStatus::class,
     ];
 
-    /**
-     * Success state
-     */
-    public const SUCCESS_STATE = 'success';
-
-    /**
-     * Failed state
-     */
-    public const FAILED_STATE = 'failed';
-
-    /**
-     * Life cycle
-     *
-     * @return BelongsTo
-     */
-    public function lifeCycle()
+    public function lifeCycle(): BelongsTo
     {
         return $this->belongsTo(SystemLifeCycle::class, 'system_life_cycle_id', 'id');
     }
 
-    /**
-     * Stage
-     *
-     * @return BelongsTo
-     */
-    public function lifeCycleStage()
+    public function lifeCycleStage(): BelongsTo
     {
         return $this->belongsTo(SystemLifeCycleStage::class, 'system_life_cycle_stage_id', 'id');
     }
 
-    /**
-     * Model
-     *
-     * @return Model
-     */
-    public function model()
+    public function model(): MorphTo
     {
-        Relation::enforceMorphMap(config('systemLifeCycle.relation_mapping'));
-
         return $this->morphTo('model');
     }
 
-    /**
-     * Failed
-     *
-     * @param Builder $builder
-     * @return Builder
-     */
     public function scopeFailed(Builder $builder): Builder
     {
-        return $builder->where('state', SystemLifeCycleLog::FAILED_STATE);
+        return $builder->where('status', LifeCycleStatus::Failed);
     }
 
-    /**
-     * Success
-     *
-     * @param Builder $builder
-     * @return Builder
-     */
     public function scopeSuccess(Builder $builder): Builder
     {
-        return $builder->where('state', SystemLifeCycleLog::SUCCESS_STATE);
+        return $builder->where('status', LifeCycleStatus::Success);
     }
 }

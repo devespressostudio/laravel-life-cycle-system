@@ -1,74 +1,49 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Models;
+namespace Devespresso\SystemLifeCycle\Models;
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycleStage;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class SystemLifeCycle extends Model
 {
-    use HasFactory;
+    use HasUlids, SoftDeletes;
 
-    /**
-     * Sets the table
-     *
-     * @var string
-     */
     protected $table = 'system_life_cycles';
 
-    /**
-     * Guarded
-     *
-     * @var array
-     */
-    protected $guarded = [
-        'id',
-    ];
+    protected $guarded = ['internal_id'];
 
-    /**
-     * Mutates attributes
-     *
-     * @var array
-     */
     protected $casts = [
-        'starts_at' => 'datetime',
-        'ends_at' => 'datetime',
-        'active' => 'boolean',
+        'starts_at'        => 'datetime',
+        'ends_at'          => 'datetime',
+        'active'           => 'boolean',
         'activate_by_cron' => 'boolean',
     ];
 
     /**
-     * Life Cycle Stages
-     *
-     * @return HasMany
+     * The stages that belong to this lifecycle, ordered by sequence.
      */
-    public function stages()
+    public function stages(): HasMany
     {
-        return $this->hasMany(SystemLifeCycleStage::class);
+        return $this->hasMany(SystemLifeCycleStage::class, 'system_life_cycle_id', 'id')
+            ->orderBy('sequence');
     }
 
     /**
-     * Activates life cycle
-     *
-     * @return void
+     * Mark the lifecycle as active.
      */
-    public function activate()
+    public function activate(): void
     {
-        $this->update([
-            'active' => 1,
-        ]);
+        $this->update(['active' => true]);
     }
 
     /**
-     * Deactivates life cycle
-     *
-     * @return void
+     * Mark the lifecycle as inactive.
      */
-    public function deactivate()
+    public function deactivate(): void
     {
-        $this->update([
-            'active' => 0,
-        ]);
+        $this->update(['active' => false]);
     }
 }

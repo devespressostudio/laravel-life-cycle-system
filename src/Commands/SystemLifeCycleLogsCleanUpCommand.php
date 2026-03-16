@@ -1,8 +1,8 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Commands;
+namespace Devespresso\SystemLifeCycle\Commands;
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycleLog;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleLog;
 use Illuminate\Console\Command;
 
 class SystemLifeCycleLogsCleanUpCommand extends Command
@@ -12,27 +12,24 @@ class SystemLifeCycleLogsCleanUpCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'system-life-cycle:logs-clean-up';
+    protected $signature = 'devespresso:life-cycle:logs-clean-up';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Cleans up the logs';
+    protected $description = 'Delete life cycle logs older than the configured retention period';
 
-    /**
-     * Execute the console command.
-     *
-     * @return int
-     */
-    public function handle()
+    public function handle(): int
     {
-        SystemLifeCycleLog::where(
-            'created_at',
-            '<',
-            now()->subDays(config('systemLifeCycle.log_retention_days'))
-        )->delete();
+        $days = config('systemLifeCycle.log_retention_days');
+
+        $deleted = SystemLifeCycleLog::where('created_at', '<', now()->subDays($days))->delete();
+
+        $deleted > 0
+            ? $this->info("Deleted {$deleted} log " . ($deleted === 1 ? 'entry' : 'entries') . " older than {$days} days.")
+            : $this->info('No logs to clean up.');
 
         return 0;
     }

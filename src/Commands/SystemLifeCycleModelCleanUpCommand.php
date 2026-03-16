@@ -1,8 +1,8 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Commands;
+namespace Devespresso\SystemLifeCycle\Commands;
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycleModel;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleModel;
 use Illuminate\Console\Command;
 
 class SystemLifeCycleModelCleanUpCommand extends Command
@@ -12,28 +12,26 @@ class SystemLifeCycleModelCleanUpCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'system-life-cycle:completed-models-clean-up';
+    protected $signature = 'devespresso:life-cycle:completed-models-clean-up';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Cleans up the logs';
+    protected $description = 'Delete completed life cycle model records older than the configured retention period';
 
-    /**
-     * Execute the console command.
-     *
-     * @return int
-     */
-    public function handle()
+    public function handle(): int
     {
-        SystemLifeCycleModel::where(
-            'updated_at',
-            '<',
-            now()->subDays(config('systemLifeCycle.completed_model_retention_days'))
-        )->completed()
+        $days = config('systemLifeCycle.completed_model_retention_days');
+
+        $deleted = SystemLifeCycleModel::completed()
+            ->where('updated_at', '<', now()->subDays($days))
             ->delete();
+
+        $deleted > 0
+            ? $this->info("Deleted {$deleted} completed " . ($deleted === 1 ? 'record' : 'records') . " older than {$days} days.")
+            : $this->info('No completed records to clean up.');
 
         return 0;
     }

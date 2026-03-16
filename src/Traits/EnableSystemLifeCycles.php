@@ -1,31 +1,24 @@
 <?php
 
-namespace Abix\SystemLifeCycle\Traits;
+namespace Devespresso\SystemLifeCycle\Traits;
 
-use Abix\SystemLifeCycle\Models\SystemLifeCycle;
-use Abix\SystemLifeCycle\Models\SystemLifeCycleModel;
-use Abix\SystemLifeCycle\Models\SystemLifeCycleStage;
-use Illuminate\Database\Eloquent\Relations\Relation;
+use Devespresso\SystemLifeCycle\Contracts\LifeCycleStageContract;
+use Devespresso\SystemLifeCycle\Enums\LifeCycleStatus;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycle;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleModel;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleStage;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 trait EnableSystemLifeCycles
 {
-    /**
-     * Enables system life cycles
-     */
-    public function lifeCycles()
+    public function lifeCycles(): MorphMany
     {
-        if (config('systemLifeCycle.custom_relation_mapping')) {
-            Relation::morphMap(config('systemLifeCycle.relation_mapping'));
-        }
-
         return $this->morphMany(SystemLifeCycleModel::class, 'model');
     }
 
     /**
-     * Attaches model to a live cycle
-     *
-     * @param string $code
-     * @return SystemLifeCycleModel|null
+     * Attach this model to a lifecycle. Idempotent — returns the existing record
+     * if the model is already enrolled, regardless of which stage it is currently on.
      */
     public function addLifeCycleByCode(string $code): ?SystemLifeCycleModel
     {
@@ -35,25 +28,70 @@ trait EnableSystemLifeCycles
             return null;
         }
 
-        $stageId = SystemLifeCycleStage::where(
-            'system_life_cycle_id',
-            $id
-        )->orderBy('order', 'ASC')
-            ->limit(1)
+        $stageId = SystemLifeCycleStage::where('system_life_cycle_id', $id)
+            ->orderBy('sequence')
             ->value('id');
 
-        return $this->lifeCycles()->firstOrCreate([
-            'system_life_cycle_id' => $id,
+        return $this->lifeCycles()->firstOrCreate(
+            ['system_life_cycle_id' => $id],
+            ['system_life_cycle_stage_id' => $stageId]
+        );
+    }
+
+    /**
+     * Re-enroll this model in a lifecycle from the beginning.
+     * If already enrolled, resets to the first stage with a clean slate.
+     * If not enrolled, creates a fresh record.
+     */
+    public function reEnrollLifeCycle(string $code): ?SystemLifeCycleModel
+    {
+        $id = SystemLifeCycle::where('code', $code)->value('id');
+
+        if (!$id) {
+            return null;
+        }
+
+        $stageId = SystemLifeCycleStage::where('system_life_cycle_id', $id)
+            ->orderBy('sequence')
+            ->value('id');
+
+        $existing = $this->lifeCycles()
+            ->where('system_life_cycle_id', $id)
+            ->first();
+
+        if ($existing) {
+            $existing->update([
+                'system_life_cycle_stage_id' => $stageId,
+                'status'                     => LifeCycleStatus::Pending,
+                'attempts'                   => 0,
+                'executes_at'                => null,
+                'payload'                    => null,
+                'batch'                      => null,
+            ]);
+
+            return $existing->fresh();
+        }
+
+        return $this->lifeCycles()->create([
+            'system_life_cycle_id'       => $id,
             'system_life_cycle_stage_id' => $stageId,
         ]);
     }
 
     /**
-     * Gets the life cycle class
-     *
-     * @return object
+     * Return the lifecycle model record for this model and the given lifecycle code.
      */
-    public function getLifeCycleStageByCode(string $code): ?object
+    public function getLifeCycleByCode(string $code): ?SystemLifeCycleModel
+    {
+        return $this->lifeCycles()
+            ->whereLifeCycleCode($code)
+            ->first();
+    }
+
+    /**
+     * Instantiate and return the stage service for the model's current stage.
+     */
+    public function getLifeCycleStageByCode(string $code): ?LifeCycleStageContract
     {
         $lifeCycle = $this->lifeCycles()
             ->whereLifeCycleCode($code)
@@ -65,15 +103,13 @@ trait EnableSystemLifeCycles
 
         $class = optional($lifeCycle->currentStage)->class;
 
-        return new $class($lifeCycle->params);
+        if (!$class) {
+            return null;
+        }
+
+        return new $class($lifeCycle);
     }
 
-    /**
-     * Sets the new stage
-     *
-     * @param string $code
-     * @return void
-     */
     public function setNextLifeCycleStage(string $code): void
     {
         $lifeCycleModel = $this->lifeCycles()
@@ -84,33 +120,24 @@ trait EnableSystemLifeCycles
             return;
         }
 
-        $newStage = SystemLifeCycleStage::where('order', '>', $lifeCycleModel->currentStage->order)
-            ->where('system_life_cycle_id', $lifeCycleModel->system_life_cycle_id)
-            ->orderBy('order', 'ASC')
-            ->limit(1)
-            ->value('id');
-
-        $newData = [
-            'system_life_cycle_stage_id' => $newStage,
-            'status' => SystemLifeCycleModel::PENDING_STATE,
-        ];
-
-        if (!$newStage) {
-            $newData['status'] = SystemLifeCycleModel::COMPLETED_STATE;
+        if (!$lifeCycleModel->currentStage) {
+            return;
         }
 
-        $lifeCycleModel->update($newData);
+        $newStageId = SystemLifeCycleStage::where('sequence', '>', $lifeCycleModel->currentStage->sequence)
+            ->where('system_life_cycle_id', $lifeCycleModel->system_life_cycle_id)
+            ->orderBy('sequence')
+            ->value('id');
+
+        $lifeCycleModel->update([
+            'system_life_cycle_stage_id' => $newStageId,
+            'status'                     => $newStageId ? LifeCycleStatus::Pending : LifeCycleStatus::Completed,
+        ]);
     }
 
-    /**
-     * Removes a life cycle
-     *
-     * @param string $code
-     * @return bool
-     */
     public function removeLifeCycle(string $code): bool
     {
-        return $this->lifeCycles()
+        return (bool) $this->lifeCycles()
             ->whereLifeCycleCode($code)
             ->delete();
     }

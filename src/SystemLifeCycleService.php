@@ -1,67 +1,40 @@
 <?php
 
-namespace Abix\SystemLifeCycle;
+namespace Devespresso\SystemLifeCycle;
 
-use Abix\SystemLifeCycle\Contracts\SystemLifeCycleContract;
-use Abix\SystemLifeCycle\Models\SystemLifeCycleLog;
-use Abix\SystemLifeCycle\Models\SystemLifeCycleModel;
-use Abix\SystemLifeCycle\Models\SystemLifeCycleStage;
+use Devespresso\SystemLifeCycle\Contracts\LifeCycleStageContract;
+use Devespresso\SystemLifeCycle\Enums\LifeCycleStatus;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleLog;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleModel;
+use Devespresso\SystemLifeCycle\Models\SystemLifeCycleStage;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
-abstract class SystemLifeCycleService implements SystemLifeCycleContract
+abstract class SystemLifeCycleService implements LifeCycleStageContract
 {
-    /**
-     * Params
-     *
-     * @var array
-     */
-    protected $params = [];
+    protected array $params = [];
 
-    /**
-     * Model
-     *
-     * @var Model
-     */
-    protected $model = null;
+    protected ?Model $model = null;
 
-    /**
-     * SystemLifeCycleModel
-     *
-     * @var SystemLifeCycleModel
-     */
-    protected $systemLifeCycleModel = null;
+    protected ?SystemLifeCycleModel $systemLifeCycleModel = null;
 
-    /**
-     * Sets the properties
-     *
-     * @param SystemLifeCycleModel $systemLifeCycleModel
-     */
     public function __construct(SystemLifeCycleModel $systemLifeCycleModel)
     {
         $this->systemLifeCycleModel = $systemLifeCycleModel;
-
-        $this->params = $systemLifeCycleModel->payload;
-
-        $this->model = $systemLifeCycleModel->model;
+        $this->params               = $systemLifeCycleModel->payload ?? [];
+        $this->model                = $systemLifeCycleModel->model;
     }
 
-    /**
-     * Executes the command and checks
-     *
-     * @return void
-     */
     public function execute(): void
     {
         try {
             DB::transaction(function () {
-                // Check if model is valid for triggering the handle method
+                // If the stage is not ready and this is not a retry, reschedule it
                 if (!$this->shouldContinueToNextStage() && !$this->isRetry()) {
-                    // Set back to pending state
                     $this->systemLifeCycleModel->update([
-                        'status' => SystemLifeCycleModel::PENDING_STATE,
+                        'status'      => LifeCycleStatus::Pending,
                         'executes_at' => $this->setExecutesAt(),
                     ]);
 
@@ -75,147 +48,97 @@ abstract class SystemLifeCycleService implements SystemLifeCycleContract
                 $this->setNextStage();
             });
         } catch (Exception $e) {
-            // Log Error
             $this->createErrorLog($e);
             $this->manageFailedCycle();
         }
     }
 
-    /**
-     * Sets the next stage
-     *
-     * @return void
-     */
     public function setNextStage(): void
     {
         $currentStage = $this->systemLifeCycleModel->currentStage;
 
-        $nextStage = SystemLifeCycleStage::where('order', '>', $currentStage->order)
+        $nextStageId = SystemLifeCycleStage::where('sequence', '>', $currentStage->sequence)
             ->where('system_life_cycle_id', $this->systemLifeCycleModel->system_life_cycle_id)
-            ->orderBy('order', 'ASC')
+            ->orderBy('sequence')
             ->value('id');
 
         $attributes = [
-            'status' => SystemLifeCycleModel::COMPLETED_STATE,
-            'payload' => $this->params,
+            'status'      => $nextStageId ? LifeCycleStatus::Pending : LifeCycleStatus::Completed,
+            'payload'     => $this->params,
             'executes_at' => null,
         ];
 
-        if ($nextStage) {
-            $attributes['status'] = SystemLifeCycleModel::PENDING_STATE;
-            $attributes['system_life_cycle_stage_id'] = $nextStage;
-            $attributes['attempts'] = 0;
+        if ($nextStageId) {
+            $attributes['system_life_cycle_stage_id'] = $nextStageId;
+            $attributes['attempts']                   = 0;
         }
 
         $this->systemLifeCycleModel->update($attributes);
     }
 
-    /**
-     * Failed cycle
-     *
-     * @return void
-     */
     public function manageFailedCycle(): void
     {
-        $state = $this->systemLifeCycleModel->attempts >= 3 ?
-            SystemLifeCycleModel::FAILED_STATE : SystemLifeCycleModel::PENDING_STATE;
+        $maxAttempts = config('systemLifeCycle.max_attempts', 3);
+        $newAttempts = $this->systemLifeCycleModel->attempts + 1;
 
         $this->systemLifeCycleModel->update([
-            'status' => $state,
-            'attempts' => $this->systemLifeCycleModel->attempts + 1,
+            'status'      => $newAttempts >= $maxAttempts
+                ? LifeCycleStatus::Failed
+                : LifeCycleStatus::Pending,
+            'attempts'    => $newAttempts,
             'executes_at' => now()->addHour(),
         ]);
     }
 
     /**
-     * Sets executes at
-     *
-     * @return Carbon|null
+     * Override to control when the next execution should run
+     * when shouldContinueToNextStage() returns false.
      */
     public function setExecutesAt(): ?Carbon
     {
         return null;
     }
 
-    /**
-     * Creates Log
-     *
-     * @param array $params
-     * @return void
-     */
-    protected function createLog(array $params = [])
+    protected function setParam(string $key, mixed $value): void
     {
-        $data = $this->systemLifeCycleModel->only([
-            'model_id',
-            'model_type',
-            'system_life_cycle_stage_id',
-            'system_life_cycle_id',
-            'payload',
-            'attempts',
-        ]);
-
-        SystemLifeCycleLog::create(array_merge(
-            $data,
-            $params,
-        ));
+        $this->params[$key] = $value;
     }
 
-    /**
-     * Create success log
-     *
-     * @return void
-     */
-    protected function createSuccessLog()
+    protected function getParam(string $key): mixed
     {
-        $this->createLog([
-            'status' => SystemLifeCycleLog::SUCCESS_STATE,
-        ]);
+        return $this->params[$key] ?? null;
     }
 
-    /**
-     * Create error log
-     *
-     * @param Exception $e
-     * @return void
-     */
-    protected function createErrorLog(Exception $e)
-    {
-        $this->createLog([
-            'error' => $e,
-            'status' => SystemLifeCycleLog::FAILED_STATE,
-        ]);
-    }
-
-    /**
-     * Checks if it is a retry
-     *
-     * @return boolean
-     */
     protected function isRetry(): bool
     {
         return $this->systemLifeCycleModel->attempts >= 1;
     }
 
-    /**
-     * Sets params
-     *
-     * @param string $key
-     * @param mixed $value
-     * @return void
-     */
-    protected function setParam(string $key, $value): void
+    private function createLog(array $params = []): void
     {
-        $this->params[$key] = $value;
+        SystemLifeCycleLog::create(array_merge(
+            $this->systemLifeCycleModel->only([
+                'model_id',
+                'model_type',
+                'system_life_cycle_stage_id',
+                'system_life_cycle_id',
+                'payload',
+                'attempts',
+            ]),
+            $params,
+        ));
     }
 
-    /**
-     * Gets the value of the param
-     *
-     * @param string $key
-     * @return mixed
-     */
-    protected function getParam(string $key)
+    private function createSuccessLog(): void
     {
-        return $this->params[$key] ?? null;
+        $this->createLog(['status' => LifeCycleStatus::Success]);
+    }
+
+    private function createErrorLog(Exception $e): void
+    {
+        $this->createLog([
+            'status' => LifeCycleStatus::Failed,
+            'error'  => $e->getMessage(),
+        ]);
     }
 }
