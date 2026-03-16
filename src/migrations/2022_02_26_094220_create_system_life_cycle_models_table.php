@@ -5,14 +5,9 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class CreateSystemLifeCycleModelsTable extends Migration
+return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * @return void
-     */
-    public function up()
+    public function up(): void
     {
         Schema::create('system_life_cycle_models', function (Blueprint $table) {
             $table->bigIncrements('internal_id');
@@ -58,13 +53,8 @@ class CreateSystemLifeCycleModelsTable extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     *
-     * @return void
-     */
-    public function down()
+    public function down(): void
     {
         Schema::dropIfExists('system_life_cycle_models');
     }
-}
+};

@@ -4,24 +4,19 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class CreateSystemLifeCyclesTable extends Migration
+return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * @return void
-     */
-    public function up()
+    public function up(): void
     {
         Schema::create('system_life_cycles', function (Blueprint $table) {
             $table->bigIncrements('internal_id');
             $table->ulid('id')->unique();
             $table->string('name', 150);
             $table->string('code', 50)->unique();
-            $table->boolean('active')->default(1);
+            $table->boolean('active')->default(true);
             $table->dateTime('starts_at')->nullable();
             $table->dateTime('ends_at')->nullable();
-            $table->unsignedTinyInteger('activate_by_cron')->default(1);
+            $table->boolean('activate_by_cron')->default(true);
             $table->softDeletes();
             $table->timestamps();
 
@@ -31,13 +26,8 @@ class CreateSystemLifeCyclesTable extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     *
-     * @return void
-     */
-    public function down()
+    public function down(): void
     {
         Schema::dropIfExists('system_life_cycles');
     }
-}
+};

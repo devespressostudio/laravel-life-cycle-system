@@ -18,8 +18,9 @@ class SystemLifeCycleModel extends Model
     protected $guarded = ['internal_id'];
 
     protected $casts = [
-        'payload' => 'json',
-        'status'  => LifeCycleStatus::class,
+        'payload'     => 'json',
+        'status'      => LifeCycleStatus::class,
+        'executes_at' => 'datetime',
     ];
 
     protected $attributes = [

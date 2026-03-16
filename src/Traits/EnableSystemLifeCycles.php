@@ -101,7 +101,7 @@ trait EnableSystemLifeCycles
             return null;
         }
 
-        $class = optional($lifeCycle->currentStage)->class;
+        $class = $lifeCycle->currentStage?->class;
 
         if (!$class) {
             return null;
