@@ -240,9 +240,16 @@ You can customize frequencies or disable auto-scheduling entirely via the `sched
     ],
 ],
 
-// Disable auto-scheduling to manage commands yourself
+// Disable auto-scheduling to manage commands yourself.
+// You must still set window_in_minutes and stale_after_minutes
+// to match whatever frequency you schedule the run command at,
+// as the query scope and stale reset rely on these values.
 'schedule' => [
     'enabled' => false,
+    'run' => [
+        'window_in_minutes'   => 5,   // match your custom frequency
+        'stale_after_minutes' => 10,
+    ],
 ],
 ```
 
